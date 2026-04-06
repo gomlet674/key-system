@@ -1,4 +1,4 @@
-// server.js - Replit Ready Key System
+// server.js - Railway-ready Key System
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -10,8 +10,8 @@ app.use(cors());
 
 // ====== ENV VARIABLES ======
 const PORT = process.env.PORT || 3000;
-const MONGO_URI = process.env.MONGO_URI; // isi di Replit Secrets
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN; // isi token admin di Replit Secrets
+const MONGO_URI = process.env.MONGO_URI;   // isi di Railway → Variables
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN; // isi di Railway → Variables
 
 // ====== MONGOOSE SETUP ======
 mongoose.connect(MONGO_URI, {
@@ -28,7 +28,7 @@ mongoose.connect(MONGO_URI, {
 const keySchema = new mongoose.Schema({
   key: String,
   createdAt: { type: Date, default: Date.now },
-  duration: Number, // detik
+  duration: Number,       // detik
   usedBy: { type: [String], default: [] }, // userIds
   expired: { type: Boolean, default: false },
 });
@@ -44,7 +44,7 @@ app.post("/create", async (req, res) => {
 
   const newKey = new Key({
     key: crypto.randomBytes(8).toString("hex").toUpperCase(),
-    duration: duration || 3600,
+    duration: duration || 3600, // default 1 jam
   });
 
   await newKey.save();
@@ -87,5 +87,5 @@ app.get("/keys", async (req, res) => {
 // ====== START SERVER ======
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🌐 Public URL: https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`);
+  console.log(`🌐 Public URL: cek di Railway Dashboard → Live App URL`);
 });
