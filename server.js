@@ -1,139 +1,116 @@
+// server.js
 const express = require("express");
 const mongoose = require("mongoose");
-const crypto = require("crypto");
 const rateLimit = require("express-rate-limit");
-
+const cors = require("cors");
 const app = express();
+
+// ------------------- CONFIG -------------------
+const PORT = process.env.PORT || 8080;
+const MONGO_URI = process.env.MONGO_URI; // isi di Railway Variables
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "changeme";
+
+// ------------------- TRUST PROXY -------------------
+app.set("trust proxy", 1); // penting untuk X-Forwarded-For
+
+// ------------------- MIDDLEWARE -------------------
 app.use(express.json());
+app.use(cors());
 
-// ===== CONFIG =====
-const PORT = process.env.PORT || 3000;
-const MONGO_URI = process.env.MONGO_URI;
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
-
-// ===== DB =====
-mongoose.connect(MONGO_URI)
-.then(()=>console.log("✅ MongoDB Connected"))
-.catch(err=>console.log(err));
-
-// ===== SCHEMA =====
-const Key = mongoose.model("Key", new mongoose.Schema({
-  keyHash: String,
-  tier: String,
-  createdAt: { type: Date, default: Date.now },
-  expiresAt: Date,
-  ip: String,
-  usageCount: { type: Number, default: 0 }
-}));
-
-const Log = mongoose.model("Log", new mongoose.Schema({
-  action: String,
-  ip: String,
-  timestamp: { type: Date, default: Date.now }
-}));
-
-// ===== SECURITY =====
+// ------------------- RATE LIMIT -------------------
 const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 20
+  windowMs: 1 * 60 * 1000, // 1 menit
+  max: 100, // 100 request per IP per menit
+  message: { error: "Too many requests, slow down!" },
 });
 app.use(limiter);
 
-// ===== UTILS =====
-function genKey(){
-  return crypto.randomBytes(16).toString("hex");
+// ------------------- MONGODB -------------------
+mongoose.connect(MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+.then(() => console.log("✅ MongoDB connected"))
+.catch(err => console.log("❌ MongoDB connection error:", err));
+
+// ------------------- SCHEMA -------------------
+const keySchema = new mongoose.Schema({
+  key: String,
+  ip: String,
+  expiresAt: Date,
+});
+const Key = mongoose.model("Key", keySchema);
+
+// ------------------- HELPERS -------------------
+function generateKey(length = 8) {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let result = "";
+  for(let i=0;i<length;i++){
+    result += chars.charAt(Math.floor(Math.random()*chars.length));
+  }
+  return result;
 }
 
-function hash(key){
-  return crypto.createHash("sha256").update(key).digest("hex");
-}
+// ------------------- ROUTES -------------------
 
-// ===== ADMIN: GENERATE =====
+// Admin generate key (manual)
 app.post("/generate", async (req,res)=>{
-  if(req.headers.authorization !== ADMIN_TOKEN)
-    return res.status(401).json({error:"Unauthorized"});
+  const auth = req.headers["authorization"];
+  if(auth !== ADMIN_TOKEN) return res.status(401).json({ error: "Unauthorized" });
 
-  const rawKey = genKey();
-  const keyHash = hash(rawKey);
+  const { tier, duration } = req.body;
+  const key = generateKey(12);
+  const expiresAt = new Date(Date.now() + (duration || 1) * 24*60*60*1000);
 
-  const { tier = "FREE", duration = 1 } = req.body;
+  const newKey = new Key({
+    key, ip: null, expiresAt
+  });
 
-  const expiresAt = new Date(Date.now() + duration * 24*60*60*1000);
-
-  await Key.create({ keyHash, tier, expiresAt });
-
-  res.json({ key: rawKey, tier, expiresAt });
+  await newKey.save();
+  res.json({ key, expiresAt });
 });
 
-// ===== VERIFY =====
+// Public get key (IP-based, 1x per day)
+app.get("/getkey", async (req,res)=>{
+  const userIP = req.ip;
+
+  let existing = await Key.findOne({ ip: userIP });
+  const now = new Date();
+
+  if(existing && existing.expiresAt > now){
+    return res.json({ key: existing.key, expiresAt: existing.expiresAt });
+  }
+
+  const key = generateKey(12);
+  const expiresAt = new Date(Date.now() + 24*60*60*1000);
+
+  const newKey = new Key({ key, ip: userIP, expiresAt });
+  await newKey.save();
+
+  res.json({ key, expiresAt });
+});
+
+// Verify key
 app.post("/verify", async (req,res)=>{
   const { key } = req.body;
-  const ip = req.ip;
+  if(!key) return res.status(400).json({ valid:false, error:"Missing key" });
 
-  const found = await Key.findOne({ keyHash: hash(key) });
+  const existing = await Key.findOne({ key });
+  const now = new Date();
 
-  if(!found){
-    await Log.create({ action:"INVALID_KEY", ip });
-    return res.json({ valid:false });
+  if(existing && existing.expiresAt > now){
+    return res.json({ valid:true, key });
   }
 
-  if(found.expiresAt < new Date()){
-    await Log.create({ action:"EXPIRED", ip });
-    return res.json({ valid:false, message:"Expired" });
-  }
-
-  // Bind IP (optional)
-  if(!found.ip) found.ip = ip;
-  if(found.ip !== ip){
-    return res.json({ valid:false, message:"Different device" });
-  }
-
-  found.usageCount++;
-  await found.save();
-
-  await Log.create({ action:"VALID", ip });
-
-  res.json({
-    valid:true,
-    tier: found.tier,
-    usage: found.usageCount
-  });
+  return res.json({ valid:false });
 });
 
-// ===== REVOKE =====
-app.post("/revoke", async (req,res)=>{
-  if(req.headers.authorization !== ADMIN_TOKEN)
-    return res.status(401).json({error:"Unauthorized"});
-
-  const { key } = req.body;
-  await Key.deleteOne({ keyHash: hash(key) });
-
-  res.json({ success:true });
+// ------------------- ROOT -------------------
+app.get("/", (req,res)=>{
+  res.send("🔐 Key System Server Running ✅");
 });
 
-// ===== LIST KEYS =====
-app.get("/keys", async (req,res)=>{
-  if(req.headers.authorization !== ADMIN_TOKEN)
-    return res.status(401).json({error:"Unauthorized"});
-
-  const keys = await Key.find().sort({ createdAt: -1 });
-  res.json(keys);
+// ------------------- START SERVER -------------------
+app.listen(PORT, ()=>{
+  console.log(`🚀 Server running on port ${PORT}`);
 });
-
-// ===== LOGS =====
-app.get("/logs", async (req,res)=>{
-  if(req.headers.authorization !== ADMIN_TOKEN)
-    return res.status(401).json({error:"Unauthorized"});
-
-  const logs = await Log.find().sort({ timestamp: -1 }).limit(100);
-  res.json(logs);
-});
-
-// ===== AUTO CLEAN EXPIRED =====
-setInterval(async ()=>{
-  await Key.deleteMany({ expiresAt: { $lt: new Date() } });
-  console.log("🧹 Cleaned expired keys");
-}, 60 * 60 * 1000);
-
-// ===== START =====
-app.listen(PORT, ()=>console.log("🚀 PRO++ Server Running"));
