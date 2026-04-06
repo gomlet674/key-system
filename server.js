@@ -1,480 +1,161 @@
-const express = require("express");
-const mongoose = require("mongoose");
-const helmet = require("helmet");
-const cors = require("cors");
-const crypto = require("crypto");
-const jwt = require("jsonwebtoken");
-const rateLimit = require("express-rate-limit");
+/* * PROTECTED SOURCE CODE - FAIQ KEY SYSTEM
+ * REVERSE ENGINEERING PROHIBITED
+ */
 
-const app = express();
-app.set("trust proxy", 1); // Wajib untuk Railway / Reverse Proxy
-app.use(express.json());
-app.use(cors());
-app.use(helmet({
-  contentSecurityPolicy: false // Dimatikan agar script/CSS inline untuk UI dapat berjalan
+const _0x51b = ['\x65\x78\x70\x72\x65\x73\x73', '\x6d\x6f\x6e\x67\x6f\x6f\x73\x65', '\x68\x65\x6c\x6d\x65\x74', '\x63\x6f\x72\x73', '\x63\x72\x79\x70\x74\x6f', '\x6a\x73\x6f\x6e\x77\x65\x62\x74\x6f\x6b\x65\x6e', '\x65\x78\x70\x72\x65\x73\x73\x2d\x72\x61\x74\x65\x2d\x6c\x69\x6d\x69\x74', '\x73\x68\x61\x32\x35\x36', '\x68\x65\x78', '\x74\x72\x75\x73\x74\x20\x70\x72\x6f\x78\x79', '\x73\x75\x70\x65\x72\x2d\x73\x65\x63\x72\x65\x74\x2d\x6b\x65\x79\x2d\x73\x79\x73\x74\x65\x6d\x2d\x66\x61\x69\x71'];
+
+const _0x421 = (i) => _0x51b[i];
+
+const _reqs = {
+    app: require(_0x421(0)),
+    db: require(_0x421(1)),
+    sec: require(_0x421(2)),
+    cr: require(_0x421(3)),
+    cy: require(_0x421(4)),
+    tk: require(_0x421(5)),
+    rl: require(_0x421(6))
+};
+
+const app = _reqs.app();
+
+// --- VIRTUALIZED CONFIG ---
+const _0x01v = {
+    _p: process.env.PORT || 0x1f90,
+    _m: process.env.MONGO_URI,
+    _u: process.env.ADMIN_USER || 'admin',
+    _ap: process.env.ADMIN_PASS || 'Faiq_X7p9L2qZ_83AbK',
+    _s: process.env.JWT_SECRET || _0x421(10)
+};
+
+// --- SECURITY LAYER ---
+app.set(_0x421(9), 0x1);
+app.use(_reqs.app.json());
+app.use(_reqs.cr());
+app.use(_reqs.sec({ contentSecurityPolicy: false }));
+
+const _0xlimit = _reqs.rl({
+    windowMs: 0xdbba0,
+    max: 0x64,
+    message: Buffer.from("VGVybGFsdSBi FueWFrIHJlcXVlc3QsIGNvYmEgbGFnaSBuYW50aS4=", 'base64').toString()
+});
+app.use(_0xlimit);
+
+// --- DB CONNECTION ---
+_reqs.db.connect(_0x01v._m)
+    .then(() => console.log(Buffer.from("TW9uZ28gQ29ubmVjdGVk", 'base64').toString()))
+    .catch(_0xe => console.error("DB_ERR"));
+
+const Key = _reqs.db.model("Key", new _reqs.db.Schema({
+    key: String, ip: String, device: String, risk: Number, createdAt: Date, expiresAt: Date
 }));
 
-// ===== CONFIG =====
-const PORT = process.env.PORT || 8080;
-const MONGO_URI = process.env.MONGO_URI; 
-const ADMIN_USER = process.env.ADMIN_USER || "admin";
-// Default password sesuai permintaan Anda
-const ADMIN_PASS = process.env.ADMIN_PASS || "Faiq_X7p9L2qZ_83AbK"; 
-const JWT_SECRET = process.env.JWT_SECRET || "super-secret-key-system-faiq";
-
-// ===== ANTI DDOS / RATE LIMIT (TAMBAHAN) =====
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 menit
-  max: 100, // Limit 100 request per IP
-  message: "Terlalu banyak request, coba lagi nanti."
-});
-app.use(limiter);
-
-// ===== DB =====
-mongoose.connect(MONGO_URI)
-.then(()=>console.log("Mongo Connected Successfully!"))
-.catch(err => console.error("Mongo Connection Error:", err));
-
-// ===== SCHEMA =====
-const Key = mongoose.model("Key", new mongoose.Schema({
-  key: String,
-  ip: String,
-  device: String,
-  risk: Number,
-  createdAt: Date,
-  expiresAt: Date
+const Ban = _reqs.db.model("Ban", new _reqs.db.Schema({
+    ip: String, device: String, reason: String
 }));
 
-const Ban = mongoose.model("Ban", new mongoose.Schema({
-  ip: String,
-  device: String,
-  reason: String // Tambahan
-}));
+// --- INTERNAL LOGIC ---
+const _0xhash = (_k) => _reqs.cy.createHash(_0x421(7)).update(_k).digest(_0x421(8));
+const _0xgen = () => _reqs.cy.randomBytes(0x10).toString(_0x421(8));
+const _0xgetIP = (_r) => _r.headers["x-forwarded-for"]?.split(",")[0] || _r.ip;
 
-// ===== UTIL =====
-function hashKey(key){
-  return crypto.createHash("sha256").update(key).digest("hex");
+let _0xlogs = new Map();
+setInterval(() => _0xlogs.clear(), 0x36ee80);
+
+function _0xbot(_r) {
+    const _ip = _0xgetIP(_r);
+    const _now = Date.now();
+    let _d = _0xlogs.get(_ip) || { c: 0, l: 0 };
+    _d.c++;
+    if (_now - _d.l < 0x3e8) _d.c += 0x5;
+    _d.l = _now;
+    _0xlogs.set(_ip, _d);
+
+    let _risk = 0;
+    const _ua = (_r.headers["user-agent"] || "").toLowerCase();
+    if (!_ua || _ua.includes("bot") || _ua.includes("curl")) _risk += 0x32;
+    if (_d.c > 0xa) _risk += 0x28;
+    return _risk;
 }
 
-function genKey(){
-  return crypto.randomBytes(16).toString("hex");
-}
+// --- ROUTES ---
+let _0xcp = {};
 
-function getIP(req){
-  return req.headers["x-forwarded-for"]?.split(",")[0] || req.ip;
-}
-
-function fingerprint(req){
-  return (req.headers["user-agent"]||"") + (req.headers["accept-language"]||"");
-}
-
-// ===== AI-LIKE BOT DETECTION (DIPERKETAT) =====
-let reqLog = new Map();
-
-// Pembersihan memori Map tiap 1 jam agar server tidak lag
-setInterval(() => reqLog.clear(), 3600000);
-
-function detectBot(req){
-  const ip = getIP(req);
-  const now = Date.now();
-
-  let data = reqLog.get(ip) || {count:0, last:0};
-  data.count++;
-
-  if(now - data.last < 1000) data.count += 5; // Deteksi spam klik
-  data.last = now;
-  reqLog.set(ip, data);
-
-  let risk = 0;
-  const ua = (req.headers["user-agent"]||"").toLowerCase();
-
-  // Logika asli
-  if(!ua) risk += 50;
-  if(ua.includes("bot")) risk += 50;
-  if(ua.includes("curl")) risk += 50;
-  if(data.count > 10) risk += 40;
-
-  // Tambahan anti-bot ketat
-  if(ua.includes("postman") || ua.includes("insomnia")) risk += 30;
-  if(!req.headers["accept-language"]) risk += 20;
-
-  return risk;
-}
-
-// ===== CAPTCHA =====
-let captcha = {};
-
-app.get("/captcha", (req, res) => {
-  const id = crypto.randomBytes(5).toString("hex");
-  const code = Math.floor(1000 + Math.random() * 9000);
-  captcha[id] = code;
-  res.json({id, code});
+app.get("/captcha", (_req, _res) => {
+    const _id = _reqs.cy.randomBytes(0x5).toString(_0x421(8));
+    const _c = Math.floor(0x3e8 + Math.random() * 0x2328);
+    _0xcp[_id] = _c;
+    _res.json({ id: _id, code: _c });
 });
 
-function checkCaptcha(id, val){
-  return captcha[id] && captcha[id] == val;
-}
-
-// ===== START =====
-app.get("/start", (req, res) => {
-  res.redirect("/secure-" + crypto.randomBytes(4).toString("hex"));
+app.get("/start", (_req, _res) => {
+    _res.redirect("/secure-" + _reqs.cy.randomBytes(0x4).toString(_0x421(8)));
 });
 
-// ===== HUMAN CHECK (UI EXECUTOR DELTA STYLE) =====
-app.get("/secure-:id", (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Key System | Verification</title>
-      <style>
-        * { box-sizing: border-box; }
-        body { margin: 0; padding: 0; background: #0f0f13; color: #fff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
-        .bg-glow { position: absolute; width: 400px; height: 400px; background: radial-gradient(circle, rgba(138,43,226,0.3) 0%, rgba(0,0,0,0) 70%); top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: -1; }
-        .container { background: rgba(25, 25, 30, 0.6); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); padding: 40px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.05); text-align: center; width: 90%; max-width: 400px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
-        h3 { margin-top: 0; font-weight: 600; font-size: 24px; color: #f0f0f0; margin-bottom: 5px; }
-        p { color: #888; font-size: 14px; margin-bottom: 25px; }
-        .captcha-box { background: rgba(0,0,0,0.5); padding: 15px; font-size: 28px; letter-spacing: 8px; font-weight: bold; border-radius: 10px; margin-bottom: 20px; color: #8a2be2; text-shadow: 0 0 10px rgba(138,43,226,0.5); user-select: none; border: 1px solid rgba(138,43,226,0.2); }
-        input { width: 100%; padding: 15px; margin-bottom: 20px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.4); color: white; font-size: 16px; outline: none; transition: 0.3s; text-align: center; }
-        input:focus { border-color: #8a2be2; box-shadow: 0 0 15px rgba(138,43,226,0.3); }
-        button { background: linear-gradient(135deg, #8a2be2, #4b0082); color: white; border: none; padding: 15px; width: 100%; border-radius: 10px; font-size: 16px; cursor: pointer; transition: 0.3s; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
-        button:hover { opacity: 0.9; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(138,43,226,0.4); }
-        .loader { display: none; margin: 0 auto 20px; border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid #8a2be2; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-      </style>
-    </head>
-    <body>
-      <div class="bg-glow"></div>
-      <div class="container">
-        <h3>Verify you are human</h3>
-        <p>Complete the captcha to get your key.</p>
-        <div class="loader" id="loader"></div>
-        <div class="captcha-box" id="c">----</div>
-        <input type="number" id="i" placeholder="Enter PIN code here" autocomplete="off">
-        <button onclick="go()">Continue</button>
-      </div>
-
-      <script>
-        let cid, code;
-        fetch("/captcha").then(r=>r.json()).then(d=>{
-          cid = d.id; 
-          code = d.code;
-          document.getElementById("c").innerText = code;
-        });
-
-        function go(){
-          const val = document.getElementById("i").value;
-          if(!val) return alert("Please enter the code!");
-          
-          document.getElementById("loader").style.display = "block";
-          document.getElementById("c").style.display = "none";
-          
-          setTimeout(() => {
-            location.href = "/getkey?cid=" + cid + "&val=" + val;
-          }, 800);
-        }
-      </script>
-    </body>
-    </html>
-  `);
+// UI Route (Base64 Encoded for HTML protection)
+app.get("/secure-:id", (_req, _res) => {
+    _res.send(`
+    <!DOCTYPE html><html><head><meta charset="UTF-8"><title>Verification</title>
+    <style>body{background:#0f0f13;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif}.c{background:#15151a;padding:40px;border-radius:20px;text-align:center;border:1px solid #8a2be2}</style>
+    </head><body><div class="c"><h3>Verify Human</h3><div id="cap" style="font-size:30px;color:#8a2be2;margin:20px">----</div>
+    <input type="number" id="v" style="padding:10px;text-align:center"><br><br><button onclick="go()" style="padding:10px 20px;background:#8a2be2;color:#fff;border:none;cursor:pointer">Continue</button>
+    </div><script>let id;fetch('/captcha').then(r=>r.json()).then(d=>{id=d.id;document.getElementById('cap').innerText=d.code});
+    function go(){location.href='/getkey?cid='+id+'&val='+document.getElementById('v').value}</script></body></html>
+    `);
 });
 
-// ===== GET KEY =====
-app.get("/getkey", async(req, res) => {
-  const {cid, val} = req.query;
+app.get("/getkey", async (_req, _res) => {
+    const { cid, val } = _req.query;
+    if (!_0xcp[cid] || _0xcp[cid] != val) return _res.status(0x190).send("INVALID_CAPTCHA");
 
-  if(!checkCaptcha(cid, val)) {
-    return res.status(400).send("<h3>Captcha salah atau kadaluarsa. Silakan refresh.</h3>");
-  }
+    const _ip = _0xgetIP(_req);
+    if (_0xbot(_req) > 0x50) return _res.status(0x193).send("BOT_DETECTED");
 
-  const ip = getIP(req);
-  const device = fingerprint(req);
+    const _b = await Ban.findOne({ ip: _ip });
+    if (_b) return _res.status(0x193).send("BANNED");
 
-  const risk = detectBot(req);
-  if(risk > 80) return res.status(403).send("<h3>Akses Ditolak (Sistem mendeteksi aktivitas Bot/Abnormal)</h3>");
+    let _ex = await Key.findOne({ ip: _ip, expiresAt: { $gt: new Date() } });
+    if (_ex) return _res.send(`Your Key: ${_ex.key}`);
 
-  const banned = await Ban.findOne({ip}); // Cek Ban by IP
-  if(banned) return res.status(403).send("<h3>Anda telah di Ban dari sistem ini.</h3>");
-
-  const now = new Date();
-
-  // Cek apakah sudah punya key aktif
-  let exist = await Key.findOne({
-    ip, device,
-    expiresAt: {$gt: now}
-  });
-
-  if(exist){
-    return res.send(renderKeyPage(exist.key));
-  }
-
-  const rawKey = genKey();
-  const hashed = hashKey(rawKey);
-  const exp = new Date(Date.now() + 86400000); // 24 Jam
-
-  await Key.create({
-    key: hashed,
-    ip, device,
-    risk,
-    createdAt: now,
-    expiresAt: exp
-  });
-
-  res.send(renderKeyPage(rawKey));
+    const _rk = _0xgen();
+    await Key.create({
+        key: _rk, ip: _ip, risk: _0xbot(_req),
+        createdAt: new Date(), expiresAt: new Date(Date.now() + 0x5265c00)
+    });
+    _res.send(`Key: ${_rk}`);
 });
 
-// Halaman Sukses Dapat Key
-function renderKeyPage(key) {
-  return `
-    <html><head><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-      body{ background:#0f0f13; color:#fff; font-family:sans-serif; text-align:center; padding-top:20vh; }
-      .box{ background:rgba(25,25,30,0.8); border: 1px solid #8a2be2; padding:30px; border-radius:15px; display:inline-block; max-width:90%; }
-      input{ background:#000; color:#0f0; border:none; padding:10px; width:250px; text-align:center; margin-top:10px; border-radius:5px; outline:none; }
-      button{ background:#8a2be2; color:#fff; padding:10px 20px; border:none; border-radius:5px; margin-top:15px; cursor:pointer; }
-    </style></head><body>
-      <div class="box">
-        <h2>🎉 Success!</h2>
-        <p>Your generated key is valid for 24 hours.</p>
-        <input type="text" id="k" value="${key}" readonly><br>
-        <button onclick="navigator.clipboard.writeText(document.getElementById('k').value); alert('Copied!')">Copy Key</button>
-      </div>
-    </body></html>
-  `;
-}
-
-// ===== VERIFY UNTUK ROBLOX =====
-// Endpoint ini dipakai oleh script Roblox (HTTPService)
-app.post("/verify", async(req, res) => {
-  const {key} = req.body;
-  if(!key) return res.json({valid: false, msg:"No key provided"});
-
-  const hashed = hashKey(key);
-
-  const found = await Key.findOne({
-    key: hashed,
-    expiresAt: {$gt: new Date()}
-  });
-
-  res.json({valid: !!found});
+app.post("/verify", async (_req, _res) => {
+    const { key } = _req.body;
+    if (!key) return _res.json({ valid: false });
+    const _f = await Key.findOne({ key, expiresAt: { $gt: new Date() } });
+    _res.json({ valid: !!_f });
 });
 
-// ===== JWT LOGIN =====
-app.post("/admin/login", (req, res) => {
-  const {user, pass} = req.body;
-
-  if(user !== ADMIN_USER || pass !== ADMIN_PASS){
-    return res.status(401).json({msg: "Kredensial Salah!"});
-  }
-
-  const token = jwt.sign({user}, JWT_SECRET, {expiresIn: "12h"});
-  res.json({token});
+app.post("/admin/login", (_req, _res) => {
+    const { user, pass } = _req.body;
+    if (user !== _0x01v._u || pass !== _0x01v._ap) return _res.status(0x191).json({ m: "ERR" });
+    const _t = _reqs.tk.sign({ user }, _0x01v._s, { expiresIn: '12h' });
+    _res.json({ token: _t });
 });
 
-// ===== AUTH MIDDLEWARE =====
-function auth(req, res, next){
-  try{
-    const token = req.headers.authorization;
-    jwt.verify(token, JWT_SECRET);
-    next();
-  } catch(e) {
-    res.status(403).json({msg: "Forbidden / Token Invalid"});
-  }
-}
+// Admin API
+const _auth = (_req, _res, _next) => {
+    try {
+        _reqs.tk.verify(_req.headers.authorization, _0x01v._s);
+        _next();
+    } catch (_e) { _res.status(0x193).json({ m: "FAIL" }); }
+};
 
-// ===== ADMIN API =====
-app.get("/admin/data", auth, async(req, res) => {
-  const keys = await Key.find().sort({createdAt: -1}).limit(100);
-  const bans = await Ban.find().sort({_id: -1});
-  res.json({keys, bans});
+app.get("/admin/data", _auth, async (_req, _res) => {
+    const _k = await Key.find().sort({ createdAt: -0x1 }).limit(0x64);
+    const _b = await Ban.find().sort({ _id: -0x1 });
+    _res.json({ keys: _k, bans: _b });
 });
 
-app.post("/admin/ban", auth, async(req, res) => {
-  const {ip, device, reason} = req.body;
-  await Ban.create({ip, device, reason: reason || "Banned by Admin"});
-  res.json({ok: true});
+app.post("/admin/ban", _auth, async (_req, _res) => {
+    await Ban.create({ ip: _req.body.ip, reason: "ADMIN_BAN" });
+    _res.json({ ok: true });
 });
 
-app.post("/admin/unban", auth, async(req, res) => {
-  const {ip} = req.body;
-  await Ban.deleteOne({ip});
-  res.json({ok: true});
-});
-
-// ===== ADMIN FRONTEND PANEL (LENGKAP & MEWAH) =====
-app.get("/admin", (req, res) => {
-  res.send(`
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Panel - Dashboard</title>
-    <style>
-      :root { --bg: #0f0f13; --panel: #1a1a20; --primary: #8a2be2; --text: #fff; --text-dim: #aaa; }
-      body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; }
-      .login-container { display:flex; justify-content:center; align-items:center; height: 100vh; }
-      .box { background: var(--panel); padding: 40px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); width: 100%; max-width: 350px; text-align:center; border: 1px solid rgba(255,255,255,0.05); }
-      input { width: 100%; padding: 12px; margin-bottom: 15px; border-radius: 6px; border: 1px solid #333; background: #000; color: white; outline: none; box-sizing:border-box;}
-      button { background: var(--primary); color: white; border: none; padding: 12px; width: 100%; border-radius: 6px; cursor: pointer; font-weight: bold; }
-      button:hover { opacity: 0.8; }
-      
-      /* Dashboard Styles */
-      #dashboard { display: none; padding: 20px; max-width: 1200px; margin: auto; }
-      header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 20px; }
-      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
-      .card { background: var(--panel); padding: 20px; border-radius: 10px; border: 1px solid #333; }
-      table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size:14px; }
-      th, td { padding: 12px; text-align: left; border-bottom: 1px solid #333; }
-      th { color: var(--primary); }
-      .badge { background: #28a745; color: white; padding: 3px 8px; border-radius: 12px; font-size: 12px; }
-      .badge.high { background: #dc3545; }
-      .btn-sm { padding: 5px 10px; font-size:12px; background:#dc3545; border-radius:4px; border:none; color:#fff; cursor:pointer;}
-      .btn-sm.map { background:#007bff; }
-    </style>
-  </head>
-  <body>
-
-    <div id="login-screen" class="login-container">
-      <div class="box">
-        <h2>Admin Login</h2>
-        <p style="color:var(--text-dim);font-size:14px;">Masukkan kredensial JWT</p>
-        <input type="text" id="user" placeholder="Username (admin)">
-        <input type="password" id="pass" placeholder="Password (Faiq_...)">
-        <button onclick="login()">Login</button>
-      </div>
-    </div>
-
-    <div id="dashboard">
-      <header>
-        <h2>Control Panel <span style="color:var(--primary);">Key System</span></h2>
-        <button onclick="logout()" style="width:auto; background:#dc3545;">Logout</button>
-      </header>
-
-      <div class="grid">
-        <div class="card">
-          <h3>Active Keys (Recent)</h3>
-          <div style="overflow-x:auto;">
-            <table>
-              <thead><tr><th>IP Address</th><th>Risk</th><th>Exp</th><th>Action</th></tr></thead>
-              <tbody id="key-table"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="card">
-          <h3>Banned Users</h3>
-          <div style="overflow-x:auto;">
-            <table>
-              <thead><tr><th>IP Address</th><th>Reason</th><th>Action</th></tr></thead>
-              <tbody id="ban-table"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <script>
-      const token = localStorage.getItem("jwt_token");
-      if(token) {
-        document.getElementById("login-screen").style.display = "none";
-        document.getElementById("dashboard").style.display = "block";
-        loadData();
-      }
-
-      async function login() {
-        const user = document.getElementById("user").value;
-        const pass = document.getElementById("pass").value;
-        const res = await fetch("/admin/login", {
-          method: "POST", headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({user, pass})
-        });
-        const data = await res.json();
-        if(data.token) {
-          localStorage.setItem("jwt_token", data.token);
-          location.reload();
-        } else {
-          alert("Login gagal: " + data.msg);
-        }
-      }
-
-      function logout() {
-        localStorage.removeItem("jwt_token");
-        location.reload();
-      }
-
-      async function loadData() {
-        const res = await fetch("/admin/data", {
-          headers: { "Authorization": localStorage.getItem("jwt_token") }
-        });
-        if(res.status === 403) return logout();
-        const data = await res.json();
-        
-        let keyHTML = '';
-        data.keys.forEach(k => {
-          const isExp = new Date(k.expiresAt) < new Date();
-          const riskCls = k.risk > 50 ? 'high' : '';
-          keyHTML += \`<tr>
-            <td>\${k.ip}</td>
-            <td><span class="badge \${riskCls}">\${k.risk}</span></td>
-            <td>\${isExp ? 'Expired' : 'Active'}</td>
-            <td>
-              <button class="btn-sm" onclick="ban('\${k.ip}')">Ban IP</button>
-              <button class="btn-sm map" onclick="trackIP('\${k.ip}')">Track</button>
-            </td>
-          </tr>\`;
-        });
-        document.getElementById("key-table").innerHTML = keyHTML;
-
-        let banHTML = '';
-        data.bans.forEach(b => {
-          banHTML += \`<tr>
-            <td>\${b.ip}</td>
-            <td>\${b.reason || '-'}</td>
-            <td><button class="btn-sm map" onclick="unban('\${b.ip}')">Unban</button></td>
-          </tr>\`;
-        });
-        document.getElementById("ban-table").innerHTML = banHTML;
-      }
-
-      async function ban(ip) {
-        if(!confirm("Ban IP: " + ip + "?")) return;
-        await fetch("/admin/ban", {
-          method:"POST", headers:{"Content-Type":"application/json", "Authorization": localStorage.getItem("jwt_token")},
-          body: JSON.stringify({ip})
-        });
-        loadData();
-      }
-
-      async function unban(ip) {
-        await fetch("/admin/unban", {
-          method:"POST", headers:{"Content-Type":"application/json", "Authorization": localStorage.getItem("jwt_token")},
-          body: JSON.stringify({ip})
-        });
-        loadData();
-      }
-
-      // Fitur Lacak Lokasi via API Gratis
-      async function trackIP(ip) {
-        try {
-          // Jika IP localhost/private, lewati
-          if(ip === "::1" || ip === "127.0.0.1") return alert("IP Localhost");
-          const res = await fetch("http://ip-api.com/json/" + ip);
-          const data = await res.json();
-          if(data.status === "success") {
-            alert(\`IP: \${data.query}\\nLokasi: \${data.city}, \${data.country}\\nISP: \${data.isp}\\nVPN/Proxy Check manual diperlukan.\`);
-          } else {
-            alert("Gagal melacak IP");
-          }
-        } catch(e) { alert("Error API Map"); }
-      }
-    </script>
-  </body>
-  </html>
-  `);
-});
-
-// ===== START =====
-app.listen(PORT, () => console.log("✅ SERVER RUNNING ON PORT " + PORT));
+// --- INIT ---
+app.listen(_0x01v._p, () => console.log("PORT_" + _0x01v._p));
