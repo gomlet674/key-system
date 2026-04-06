@@ -5,112 +5,86 @@ const rateLimit = require("express-rate-limit");
 const cors = require("cors");
 const app = express();
 
-// ------------------- CONFIG -------------------
 const PORT = process.env.PORT || 8080;
-const MONGO_URI = process.env.MONGO_URI; // isi di Railway Variables
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "changeme";
+const MONGO_URI = process.env.MONGO_URI;
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "Faiq_X7p9L2qZ_83AbK";
 
-// ------------------- TRUST PROXY -------------------
-app.set("trust proxy", 1); // penting untuk X-Forwarded-For
+// Trust proxy untuk Railway
+app.set("trust proxy", 1);
 
-// ------------------- MIDDLEWARE -------------------
 app.use(express.json());
 app.use(cors());
 
-// ------------------- RATE LIMIT -------------------
-const limiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 menit
-  max: 100, // 100 request per IP per menit
-  message: { error: "Too many requests, slow down!" },
-});
-app.use(limiter);
+// Rate limit umum
+app.use(rateLimit({
+  windowMs: 1*60*1000, max:100, message:{error:"Too many requests"}
+}));
 
-// ------------------- MONGODB -------------------
-mongoose.connect(MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log("✅ MongoDB connected"))
-.catch(err => console.log("❌ MongoDB connection error:", err));
+// Rate limit khusus getkey
+app.use("/getkey", rateLimit({
+  windowMs: 10*60*1000, max:5, message:{error:"Request key too fast!"}
+}));
 
-// ------------------- SCHEMA -------------------
+// MongoDB
+mongoose.connect(MONGO_URI,{useNewUrlParser:true,useUnifiedTopology:true})
+  .then(()=>console.log("✅ MongoDB connected"))
+  .catch(err=>console.log("❌ MongoDB error:",err));
+
 const keySchema = new mongoose.Schema({
   key: String,
   ip: String,
-  expiresAt: Date,
+  hardwareId: String,
+  expiresAt: Date
 });
 const Key = mongoose.model("Key", keySchema);
 
-// ------------------- HELPERS -------------------
-function generateKey(length = 8) {
+function generateKey(length=12){
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   let result = "";
-  for(let i=0;i<length;i++){
-    result += chars.charAt(Math.floor(Math.random()*chars.length));
-  }
+  for(let i=0;i<length;i++) result+=chars.charAt(Math.floor(Math.random()*chars.length));
   return result;
 }
 
-// ------------------- ROUTES -------------------
-
-// Admin generate key (manual)
+// Admin generate
 app.post("/generate", async (req,res)=>{
   const auth = req.headers["authorization"];
-  if(auth !== ADMIN_TOKEN) return res.status(401).json({ error: "Unauthorized" });
-
-  const { tier, duration } = req.body;
-  const key = generateKey(12);
-  const expiresAt = new Date(Date.now() + (duration || 1) * 24*60*60*1000);
-
-  const newKey = new Key({
-    key, ip: null, expiresAt
-  });
-
-  await newKey.save();
-  res.json({ key, expiresAt });
+  if(auth!==ADMIN_TOKEN) return res.status(401).json({error:"Unauthorized"});
+  const {duration=1} = req.body;
+  const key = generateKey();
+  const expiresAt = new Date(Date.now() + duration*24*60*60*1000);
+  await Key.create({key, ip:null, hardwareId:null, expiresAt});
+  res.json({key, expiresAt});
 });
 
-// Public get key (IP-based, 1x per day)
-app.get("/getkey", async (req,res)=>{
-  const userIP = req.ip;
-
-  let existing = await Key.findOne({ ip: userIP });
+// Public getkey
+app.post("/getkey", async (req,res)=>{
+  const {hardwareId} = req.body;
+  if(!hardwareId) return res.status(400).json({error:"Missing hardwareId"});
+  const ip = req.ip;
   const now = new Date();
 
-  if(existing && existing.expiresAt > now){
-    return res.json({ key: existing.key, expiresAt: existing.expiresAt });
-  }
+  let existing = await Key.findOne({ ip, hardwareId, expiresAt:{$gt:now} });
+  if(existing) return res.json({key:existing.key, expiresAt:existing.expiresAt});
 
-  const key = generateKey(12);
-  const expiresAt = new Date(Date.now() + 24*60*60*1000);
+  // generate new key unique
+  let key = generateKey();
+  while(await Key.findOne({key})) key = generateKey();
 
-  const newKey = new Key({ key, ip: userIP, expiresAt });
-  await newKey.save();
+  const expiresAt = new Date(Date.now()+24*60*60*1000);
+  await Key.create({key, ip, hardwareId, expiresAt});
 
-  res.json({ key, expiresAt });
+  res.json({key, expiresAt});
 });
 
 // Verify key
 app.post("/verify", async (req,res)=>{
-  const { key } = req.body;
-  if(!key) return res.status(400).json({ valid:false, error:"Missing key" });
-
-  const existing = await Key.findOne({ key });
+  const {key, hardwareId} = req.body;
   const now = new Date();
-
-  if(existing && existing.expiresAt > now){
-    return res.json({ valid:true, key });
-  }
-
-  return res.json({ valid:false });
+  const doc = await Key.findOne({key, hardwareId, expiresAt:{$gt:now}});
+  if(doc) return res.json({valid:true, key});
+  res.json({valid:false});
 });
 
-// ------------------- ROOT -------------------
-app.get("/", (req,res)=>{
-  res.send("🔐 Key System Server Running ✅");
-});
+app.get("/", (req,res)=>res.send("🔐 Key System PRO Running ✅"));
 
-// ------------------- START SERVER -------------------
-app.listen(PORT, ()=>{
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+app.listen(PORT, ()=>console.log(`🚀 Server running on port ${PORT}`));
