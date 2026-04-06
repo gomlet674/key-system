@@ -15,7 +15,7 @@ app.use(helmet());
 // ===== CONFIG =====
 const PORT = process.env.PORT || 8080;
 const MONGO_URI = process.env.MONGO_URI;
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "CHANGE_ME_STRONG_TOKEN";
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "Faiq_X7p9L2qZ_83AbK";
 
 // ===== DATABASE =====
 mongoose.connect(MONGO_URI)
