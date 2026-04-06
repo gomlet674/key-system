@@ -7,211 +7,474 @@ const jwt = require("jsonwebtoken");
 const rateLimit = require("express-rate-limit");
 
 const app = express();
-app.set("trust proxy", 1);
+app.set("trust proxy", 1); // Wajib untuk Railway / Reverse Proxy
 app.use(express.json());
 app.use(cors());
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({
+  contentSecurityPolicy: false // Dimatikan agar script/CSS inline untuk UI dapat berjalan
+}));
 
 // ===== CONFIG =====
 const PORT = process.env.PORT || 8080;
 const MONGO_URI = process.env.MONGO_URI; 
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
+// Default password sesuai permintaan Anda
 const ADMIN_PASS = process.env.ADMIN_PASS || "Faiq_X7p9L2qZ_83AbK"; 
-const JWT_SECRET = process.env.JWT_SECRET || "gmon-ultra-secret-key";
+const JWT_SECRET = process.env.JWT_SECRET || "super-secret-key-system-faiq";
 
-// ===== DB CONNECTION =====
-mongoose.connect(MONGO_URI).then(()=>console.log("✅ Database Connected")).catch(err => console.error(err));
+// ===== ANTI DDOS / RATE LIMIT (TAMBAHAN) =====
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 menit
+  max: 100, // Limit 100 request per IP
+  message: "Terlalu banyak request, coba lagi nanti."
+});
+app.use(limiter);
+
+// ===== DB =====
+mongoose.connect(MONGO_URI)
+.then(()=>console.log("Mongo Connected Successfully!"))
+.catch(err => console.error("Mongo Connection Error:", err));
 
 // ===== SCHEMA =====
 const Key = mongoose.model("Key", new mongoose.Schema({
-  keyValue: String,
+  key: String,
   ip: String,
-  hwid: { type: String, default: "Not Verified" },
-  risk: { type: Number, default: 0 },
-  createdAt: { type: Date, default: Date.now },
+  device: String,
+  risk: Number,
+  createdAt: Date,
   expiresAt: Date
 }));
 
 const Ban = mongoose.model("Ban", new mongoose.Schema({
   ip: String,
-  reason: { type: String, default: "Banned by Admin" },
-  date: { type: Date, default: Date.now }
+  device: String,
+  reason: String // Tambahan
 }));
 
-// ===== UTILS =====
-function genKey(){ return "GMON-" + crypto.randomBytes(8).toString("hex").toUpperCase(); }
-function getIP(req){ return req.headers["x-forwarded-for"]?.split(",")[0] || req.ip; }
+// ===== UTIL =====
+function hashKey(key){
+  return crypto.createHash("sha256").update(key).digest("hex");
+}
 
-// ===== UI RENDERER (FLUXUS STYLE) =====
-const UI_TEMPLATE = (content) => `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
-        body { background: #09090b; color: #fff; font-family: 'Inter', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .card { background: #18181b; padding: 40px; border-radius: 16px; border: 1px solid #27272a; text-align: center; width: 90%; max-width: 380px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
-        .logo { font-size: 26px; font-weight: 800; background: linear-gradient(90deg, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
-        .btn { background: #6366f1; color: #fff; border: none; padding: 12px; border-radius: 8px; font-weight: 600; cursor: pointer; width: 100%; transition: 0.3s; margin-top:15px; }
-        .btn:hover { background: #4f46e5; transform: translateY(-2px); }
-        .box { background: #000; padding: 15px; border-radius: 10px; border: 1px solid #3f3f46; margin: 20px 0; font-family: monospace; color: #a5b4fc; }
-    </style>
-</head>
-<body><div class="card">${content}</div></body>
-</html>`;
+function genKey(){
+  return crypto.randomBytes(16).toString("hex");
+}
 
-// ===== ROUTES =====
-app.get("/start", (req, res) => res.redirect("/secure-" + crypto.randomBytes(4).toString("hex")));
+function getIP(req){
+  return req.headers["x-forwarded-for"]?.split(",")[0] || req.ip;
+}
 
+function fingerprint(req){
+  return (req.headers["user-agent"]||"") + (req.headers["accept-language"]||"");
+}
+
+// ===== AI-LIKE BOT DETECTION (DIPERKETAT) =====
+let reqLog = new Map();
+
+// Pembersihan memori Map tiap 1 jam agar server tidak lag
+setInterval(() => reqLog.clear(), 3600000);
+
+function detectBot(req){
+  const ip = getIP(req);
+  const now = Date.now();
+
+  let data = reqLog.get(ip) || {count:0, last:0};
+  data.count++;
+
+  if(now - data.last < 1000) data.count += 5; // Deteksi spam klik
+  data.last = now;
+  reqLog.set(ip, data);
+
+  let risk = 0;
+  const ua = (req.headers["user-agent"]||"").toLowerCase();
+
+  // Logika asli
+  if(!ua) risk += 50;
+  if(ua.includes("bot")) risk += 50;
+  if(ua.includes("curl")) risk += 50;
+  if(data.count > 10) risk += 40;
+
+  // Tambahan anti-bot ketat
+  if(ua.includes("postman") || ua.includes("insomnia")) risk += 30;
+  if(!req.headers["accept-language"]) risk += 20;
+
+  return risk;
+}
+
+// ===== CAPTCHA =====
+let captcha = {};
+
+app.get("/captcha", (req, res) => {
+  const id = crypto.randomBytes(5).toString("hex");
+  const code = Math.floor(1000 + Math.random() * 9000);
+  captcha[id] = code;
+  res.json({id, code});
+});
+
+function checkCaptcha(id, val){
+  return captcha[id] && captcha[id] == val;
+}
+
+// ===== START =====
+app.get("/start", (req, res) => {
+  res.redirect("/secure-" + crypto.randomBytes(4).toString("hex"));
+});
+
+// ===== HUMAN CHECK (UI EXECUTOR DELTA STYLE) =====
 app.get("/secure-:id", (req, res) => {
-    const code = Math.floor(1000 + Math.random() * 9000);
-    res.send(UI_TEMPLATE(`
-        <div class="logo">Verification</div>
-        <p style="color:#a1a1aa; font-size:14px;">Please enter the PIN below to continue.</p>
-        <div style="font-size:32px; font-weight:800; color:#818cf8; letter-spacing:8px; margin:20px;">${code}</div>
-        <input type="number" id="v" placeholder="Enter PIN" style="width:100%; padding:10px; background:#000; border:1px solid #3f3f46; color:#fff; border-radius:8px; text-align:center;">
-        <button class="btn" onclick="go()">Continue</button>
-        <script>function go(){ if(document.getElementById('v').value == '${code}') location.href='/getkey'; else alert('Wrong PIN'); }</script>
-    `));
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Key System | Verification</title>
+      <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 0; background: #0f0f13; color: #fff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        .bg-glow { position: absolute; width: 400px; height: 400px; background: radial-gradient(circle, rgba(138,43,226,0.3) 0%, rgba(0,0,0,0) 70%); top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: -1; }
+        .container { background: rgba(25, 25, 30, 0.6); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); padding: 40px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.05); text-align: center; width: 90%; max-width: 400px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
+        h3 { margin-top: 0; font-weight: 600; font-size: 24px; color: #f0f0f0; margin-bottom: 5px; }
+        p { color: #888; font-size: 14px; margin-bottom: 25px; }
+        .captcha-box { background: rgba(0,0,0,0.5); padding: 15px; font-size: 28px; letter-spacing: 8px; font-weight: bold; border-radius: 10px; margin-bottom: 20px; color: #8a2be2; text-shadow: 0 0 10px rgba(138,43,226,0.5); user-select: none; border: 1px solid rgba(138,43,226,0.2); }
+        input { width: 100%; padding: 15px; margin-bottom: 20px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.4); color: white; font-size: 16px; outline: none; transition: 0.3s; text-align: center; }
+        input:focus { border-color: #8a2be2; box-shadow: 0 0 15px rgba(138,43,226,0.3); }
+        button { background: linear-gradient(135deg, #8a2be2, #4b0082); color: white; border: none; padding: 15px; width: 100%; border-radius: 10px; font-size: 16px; cursor: pointer; transition: 0.3s; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+        button:hover { opacity: 0.9; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(138,43,226,0.4); }
+        .loader { display: none; margin: 0 auto 20px; border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid #8a2be2; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      </style>
+    </head>
+    <body>
+      <div class="bg-glow"></div>
+      <div class="container">
+        <h3>Verify you are human</h3>
+        <p>Complete the captcha to get your key.</p>
+        <div class="loader" id="loader"></div>
+        <div class="captcha-box" id="c">----</div>
+        <input type="number" id="i" placeholder="Enter PIN code here" autocomplete="off">
+        <button onclick="go()">Continue</button>
+      </div>
+
+      <script>
+        let cid, code;
+        fetch("/captcha").then(r=>r.json()).then(d=>{
+          cid = d.id; 
+          code = d.code;
+          document.getElementById("c").innerText = code;
+        });
+
+        function go(){
+          const val = document.getElementById("i").value;
+          if(!val) return alert("Please enter the code!");
+          
+          document.getElementById("loader").style.display = "block";
+          document.getElementById("c").style.display = "none";
+          
+          setTimeout(() => {
+            location.href = "/getkey?cid=" + cid + "&val=" + val;
+          }, 800);
+        }
+      </script>
+    </body>
+    </html>
+  `);
 });
 
+// ===== GET KEY =====
 app.get("/getkey", async(req, res) => {
-    const ip = getIP(req);
-    // ANTI-REFRESH LOGIC: Cek key aktif
-    let keyData = await Key.findOne({ ip, expiresAt: { $gt: new Date() } });
-    
-    if(!keyData) {
-        const newKey = genKey();
-        keyData = await Key.create({ keyValue: newKey, ip, expiresAt: new Date(Date.now() + 86400000) });
-    }
+  const {cid, val} = req.query;
 
-    res.send(UI_TEMPLATE(`
-        <div class="logo">G-MON HUB</div>
-        <p style="color:#a1a1aa; font-size:14px;">Key valid for 24 hours. Don't share it!</p>
-        <div class="box" id="key">${keyData.keyValue}</div>
-        <button class="btn" onclick="navigator.clipboard.writeText('${keyData.keyValue}'); alert('Copied!')">Copy Key</button>
-    `));
+  if(!checkCaptcha(cid, val)) {
+    return res.status(400).send("<h3>Captcha salah atau kadaluarsa. Silakan refresh.</h3>");
+  }
+
+  const ip = getIP(req);
+  const device = fingerprint(req);
+
+  const risk = detectBot(req);
+  if(risk > 80) return res.status(403).send("<h3>Akses Ditolak (Sistem mendeteksi aktivitas Bot/Abnormal)</h3>");
+
+  const banned = await Ban.findOne({ip}); // Cek Ban by IP
+  if(banned) return res.status(403).send("<h3>Anda telah di Ban dari sistem ini.</h3>");
+
+  const now = new Date();
+
+  // Cek apakah sudah punya key aktif
+  let exist = await Key.findOne({
+    ip, device,
+    expiresAt: {$gt: now}
+  });
+
+  if(exist){
+    return res.send(renderKeyPage(exist.key));
+  }
+
+  const rawKey = genKey();
+  const hashed = hashKey(rawKey);
+  const exp = new Date(Date.now() + 86400000); // 24 Jam
+
+  await Key.create({
+    key: hashed,
+    ip, device,
+    risk,
+    createdAt: now,
+    expiresAt: exp
+  });
+
+  res.send(renderKeyPage(rawKey));
 });
 
-// ===== API VERIFY =====
+// Halaman Sukses Dapat Key
+function renderKeyPage(key) {
+  return `
+    <html><head><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+      body{ background:#0f0f13; color:#fff; font-family:sans-serif; text-align:center; padding-top:20vh; }
+      .box{ background:rgba(25,25,30,0.8); border: 1px solid #8a2be2; padding:30px; border-radius:15px; display:inline-block; max-width:90%; }
+      input{ background:#000; color:#0f0; border:none; padding:10px; width:250px; text-align:center; margin-top:10px; border-radius:5px; outline:none; }
+      button{ background:#8a2be2; color:#fff; padding:10px 20px; border:none; border-radius:5px; margin-top:15px; cursor:pointer; }
+    </style></head><body>
+      <div class="box">
+        <h2>🎉 Success!</h2>
+        <p>Your generated key is valid for 24 hours.</p>
+        <input type="text" id="k" value="${key}" readonly><br>
+        <button onclick="navigator.clipboard.writeText(document.getElementById('k').value); alert('Copied!')">Copy Key</button>
+      </div>
+    </body></html>
+  `;
+}
+
+// ===== VERIFY UNTUK ROBLOX =====
+// Endpoint ini dipakai oleh script Roblox (HTTPService)
 app.post("/verify", async(req, res) => {
-    const { key } = req.body;
-    const ip = getIP(req);
-    const hwid = req.headers["identifier"] || "UNKNOWN";
+  const {key} = req.body;
+  if(!key) return res.json({valid: false, msg:"No key provided"});
 
-    const isBanned = await Ban.findOne({ ip });
-    if(isBanned) return res.json({ valid: false, msg: "BANNED" });
+  const hashed = hashKey(key);
 
-    const found = await Key.findOne({ keyValue: key, expiresAt: { $gt: new Date() } });
-    if(!found) return res.json({ valid: false, msg: "Invalid Key" });
+  const found = await Key.findOne({
+    key: hashed,
+    expiresAt: {$gt: new Date()}
+  });
 
-    if(found.hwid === "Not Verified") {
-        found.hwid = hwid;
-        await found.save();
-    } else if(found.hwid !== hwid) {
-        return res.json({ valid: false, msg: "HWID Mismatch" });
-    }
-
-    res.json({ valid: true });
+  res.json({valid: !!found});
 });
 
-// ===== ADMIN PANEL =====
+// ===== JWT LOGIN =====
 app.post("/admin/login", (req, res) => {
-    if(req.body.user === ADMIN_USER && req.body.pass === ADMIN_PASS) {
-        return res.json({ token: jwt.sign({user: ADMIN_USER}, JWT_SECRET, {expiresIn: "12h"}) });
-    }
-    res.status(401).json({msg: "Failed"});
+  const {user, pass} = req.body;
+
+  if(user !== ADMIN_USER || pass !== ADMIN_PASS){
+    return res.status(401).json({msg: "Kredensial Salah!"});
+  }
+
+  const token = jwt.sign({user}, JWT_SECRET, {expiresIn: "12h"});
+  res.json({token});
 });
 
-const auth = (req, res, next) => {
-    try { jwt.verify(req.headers.authorization, JWT_SECRET); next(); } catch(e) { res.status(403).send("No"); }
-};
+// ===== AUTH MIDDLEWARE =====
+function auth(req, res, next){
+  try{
+    const token = req.headers.authorization;
+    jwt.verify(token, JWT_SECRET);
+    next();
+  } catch(e) {
+    res.status(403).json({msg: "Forbidden / Token Invalid"});
+  }
+}
 
+// ===== ADMIN API =====
 app.get("/admin/data", auth, async(req, res) => {
-    const keys = await Key.find().sort({createdAt: -1}).limit(50);
-    const bans = await Ban.find();
-    res.json({keys, bans});
+  const keys = await Key.find().sort({createdAt: -1}).limit(100);
+  const bans = await Ban.find().sort({_id: -1});
+  res.json({keys, bans});
 });
 
 app.post("/admin/ban", auth, async(req, res) => {
-    await Ban.create({ ip: req.body.ip });
-    res.json({ok:true});
+  const {ip, device, reason} = req.body;
+  await Ban.create({ip, device, reason: reason || "Banned by Admin"});
+  res.json({ok: true});
 });
 
 app.post("/admin/unban", auth, async(req, res) => {
-    await Ban.deleteOne({ ip: req.body.ip });
-    res.json({ok:true});
+  const {ip} = req.body;
+  await Ban.deleteOne({ip});
+  res.json({ok: true});
 });
 
+// ===== ADMIN FRONTEND PANEL (LENGKAP & MEWAH) =====
 app.get("/admin", (req, res) => {
-    res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>G-MON | Dashboard</title>
-        <style>
-            body { background:#09090b; color:#eee; font-family:sans-serif; padding:20px; }
-            .card { background:#18181b; padding:20px; border-radius:8px; border:1px solid #27272a; margin-bottom:20px; }
-            table { width:100%; border-collapse:collapse; }
-            th, td { text-align:left; padding:12px; border-bottom:1px solid #27272a; font-size:13px; }
-            .btn { padding:5px 10px; border-radius:4px; border:none; cursor:pointer; font-weight:600; }
-            .btn-red { background:#ef4444; color:#fff; }
-            .btn-blue { background:#3b82f6; color:#fff; }
-        </style>
-    </head>
-    <body>
-        <div id="login">
-            <input id="u" placeholder="Admin"><input id="p" type="password" placeholder="Pass">
-            <button onclick="login()">Login</button>
+  res.send(`
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - Dashboard</title>
+    <style>
+      :root { --bg: #0f0f13; --panel: #1a1a20; --primary: #8a2be2; --text: #fff; --text-dim: #aaa; }
+      body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; }
+      .login-container { display:flex; justify-content:center; align-items:center; height: 100vh; }
+      .box { background: var(--panel); padding: 40px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); width: 100%; max-width: 350px; text-align:center; border: 1px solid rgba(255,255,255,0.05); }
+      input { width: 100%; padding: 12px; margin-bottom: 15px; border-radius: 6px; border: 1px solid #333; background: #000; color: white; outline: none; box-sizing:border-box;}
+      button { background: var(--primary); color: white; border: none; padding: 12px; width: 100%; border-radius: 6px; cursor: pointer; font-weight: bold; }
+      button:hover { opacity: 0.8; }
+      
+      /* Dashboard Styles */
+      #dashboard { display: none; padding: 20px; max-width: 1200px; margin: auto; }
+      header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 20px; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+      .card { background: var(--panel); padding: 20px; border-radius: 10px; border: 1px solid #333; }
+      table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size:14px; }
+      th, td { padding: 12px; text-align: left; border-bottom: 1px solid #333; }
+      th { color: var(--primary); }
+      .badge { background: #28a745; color: white; padding: 3px 8px; border-radius: 12px; font-size: 12px; }
+      .badge.high { background: #dc3545; }
+      .btn-sm { padding: 5px 10px; font-size:12px; background:#dc3545; border-radius:4px; border:none; color:#fff; cursor:pointer;}
+      .btn-sm.map { background:#007bff; }
+    </style>
+  </head>
+  <body>
+
+    <div id="login-screen" class="login-container">
+      <div class="box">
+        <h2>Admin Login</h2>
+        <p style="color:var(--text-dim);font-size:14px;">Masukkan kredensial JWT</p>
+        <input type="text" id="user" placeholder="Username (admin)">
+        <input type="password" id="pass" placeholder="Password (Faiq_...)">
+        <button onclick="login()">Login</button>
+      </div>
+    </div>
+
+    <div id="dashboard">
+      <header>
+        <h2>Control Panel <span style="color:var(--primary);">Key System</span></h2>
+        <button onclick="logout()" style="width:auto; background:#dc3545;">Logout</button>
+      </header>
+
+      <div class="grid">
+        <div class="card">
+          <h3>Active Keys (Recent)</h3>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead><tr><th>IP Address</th><th>Risk</th><th>Exp</th><th>Action</th></tr></thead>
+              <tbody id="key-table"></tbody>
+            </table>
+          </div>
         </div>
-        <div id="main" style="display:none">
-            <div class="card">
-                <h3>System Monitor</h3>
-                <table>
-                    <thead><tr><th>Key</th><th>IP</th><th>HWID</th><th>Actions</th></tr></thead>
-                    <tbody id="list"></tbody>
-                </table>
-            </div>
-            <div class="card">
-                <h3>Banned IPs</h3>
-                <tbody id="blist"></tbody>
-            </div>
+
+        <div class="card">
+          <h3>Banned Users</h3>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead><tr><th>IP Address</th><th>Reason</th><th>Action</th></tr></thead>
+              <tbody id="ban-table"></tbody>
+            </table>
+          </div>
         </div>
-        <script>
-            async function login(){
-                const r = await fetch('/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:document.getElementById('u').value,pass:document.getElementById('p').value})});
-                const d = await r.json(); if(d.token){ localStorage.setItem('tk',d.token); location.reload(); }
-            }
-            if(localStorage.getItem('tk')){
-                document.getElementById('login').style.display='none';
-                document.getElementById('main').style.display='block';
-                load();
-            }
-            async function load(){
-                const tk = localStorage.getItem('tk');
-                const r = await fetch('/admin/data',{headers:{'Authorization':tk}});
-                const d = await r.json();
-                document.getElementById('list').innerHTML = d.keys.map(k => \`
-                    <tr>
-                        <td style="color:#818cf8">\${k.keyValue}</td>
-                        <td>\${k.ip}</td>
-                        <td>\${k.hwid}</td>
-                        <td>
-                            <button class="btn btn-red" onclick="act('/admin/ban','\${k.ip}')">Ban</button>
-                            <button class="btn btn-blue" onclick="track('\${k.ip}')">Track</button>
-                        </td>
-                    </tr>\`).join('');
-            }
-            async function act(path, ip){ await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','Authorization':localStorage.getItem('tk')},body:JSON.stringify({ip})}); load(); }
-            async function track(ip){
-                const r = await fetch('http://ip-api.com/json/'+ip);
-                const d = await r.json();
-                alert(\`Lokasi: \${d.city}, \${d.country}\\nISP: \${d.isp}\`);
-            }
-        </script>
-    </body></html>
-    `);
+      </div>
+    </div>
+
+    <script>
+      const token = localStorage.getItem("jwt_token");
+      if(token) {
+        document.getElementById("login-screen").style.display = "none";
+        document.getElementById("dashboard").style.display = "block";
+        loadData();
+      }
+
+      async function login() {
+        const user = document.getElementById("user").value;
+        const pass = document.getElementById("pass").value;
+        const res = await fetch("/admin/login", {
+          method: "POST", headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({user, pass})
+        });
+        const data = await res.json();
+        if(data.token) {
+          localStorage.setItem("jwt_token", data.token);
+          location.reload();
+        } else {
+          alert("Login gagal: " + data.msg);
+        }
+      }
+
+      function logout() {
+        localStorage.removeItem("jwt_token");
+        location.reload();
+      }
+
+      async function loadData() {
+        const res = await fetch("/admin/data", {
+          headers: { "Authorization": localStorage.getItem("jwt_token") }
+        });
+        if(res.status === 403) return logout();
+        const data = await res.json();
+        
+        let keyHTML = '';
+        data.keys.forEach(k => {
+          const isExp = new Date(k.expiresAt) < new Date();
+          const riskCls = k.risk > 50 ? 'high' : '';
+          keyHTML += \`<tr>
+            <td>\${k.ip}</td>
+            <td><span class="badge \${riskCls}">\${k.risk}</span></td>
+            <td>\${isExp ? 'Expired' : 'Active'}</td>
+            <td>
+              <button class="btn-sm" onclick="ban('\${k.ip}')">Ban IP</button>
+              <button class="btn-sm map" onclick="trackIP('\${k.ip}')">Track</button>
+            </td>
+          </tr>\`;
+        });
+        document.getElementById("key-table").innerHTML = keyHTML;
+
+        let banHTML = '';
+        data.bans.forEach(b => {
+          banHTML += \`<tr>
+            <td>\${b.ip}</td>
+            <td>\${b.reason || '-'}</td>
+            <td><button class="btn-sm map" onclick="unban('\${b.ip}')">Unban</button></td>
+          </tr>\`;
+        });
+        document.getElementById("ban-table").innerHTML = banHTML;
+      }
+
+      async function ban(ip) {
+        if(!confirm("Ban IP: " + ip + "?")) return;
+        await fetch("/admin/ban", {
+          method:"POST", headers:{"Content-Type":"application/json", "Authorization": localStorage.getItem("jwt_token")},
+          body: JSON.stringify({ip})
+        });
+        loadData();
+      }
+
+      async function unban(ip) {
+        await fetch("/admin/unban", {
+          method:"POST", headers:{"Content-Type":"application/json", "Authorization": localStorage.getItem("jwt_token")},
+          body: JSON.stringify({ip})
+        });
+        loadData();
+      }
+
+      // Fitur Lacak Lokasi via API Gratis
+      async function trackIP(ip) {
+        try {
+          // Jika IP localhost/private, lewati
+          if(ip === "::1" || ip === "127.0.0.1") return alert("IP Localhost");
+          const res = await fetch("http://ip-api.com/json/" + ip);
+          const data = await res.json();
+          if(data.status === "success") {
+            alert(\`IP: \${data.query}\\nLokasi: \${data.city}, \${data.country}\\nISP: \${data.isp}\\nVPN/Proxy Check manual diperlukan.\`);
+          } else {
+            alert("Gagal melacak IP");
+          }
+        } catch(e) { alert("Error API Map"); }
+      }
+    </script>
+  </body>
+  </html>
+  `);
 });
 
-app.listen(PORT, () => console.log("🚀 Server Running"));
+// ===== START =====
+app.listen(PORT, () => console.log("✅ SERVER RUNNING ON PORT " + PORT));
