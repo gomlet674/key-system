@@ -1,5 +1,5 @@
 {
-  "name": "key-system-pro",
+  "name": "key-system",
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
@@ -7,7 +7,8 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "mongoose": "^7.3.4",
-    "express-rate-limit": "^6.7.0"
+    "mongoose": "^7.5.0",
+    "cors": "^2.8.5",
+    "express-rate-limit": "^6.9.0"
   }
 }
