@@ -1,91 +1,108 @@
-// server.js - Railway-ready Key System
+// server.js - Key System Roblox Railway-ready
 const express = require("express");
 const mongoose = require("mongoose");
-const cors = require("cors");
-const crypto = require("crypto");
+const bodyParser = require("body-parser");
 
-const app = express();
-app.use(express.json());
-app.use(cors());
-
-// ====== ENV VARIABLES ======
+// =====================
+// ENV Variables
+// =====================
 const PORT = process.env.PORT || 3000;
-const MONGO_URI = process.env.MONGO_URI;   // isi di Railway → Variables
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN; // isi di Railway → Variables
+const MONGO_URI = process.env.MONGO_URI;       // MongoDB URI dari Railway Variables
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN;   // Token admin untuk create key
 
-// ====== MONGOOSE SETUP ======
+// =====================
+// Init Express
+// =====================
+const app = express();
+app.use(bodyParser.json());
+
+// =====================
+// MongoDB Connect
+// =====================
 mongoose.connect(MONGO_URI, {
   useNewUrlParser: true,
-  useUnifiedTopology: true,
+  useUnifiedTopology: true
 })
 .then(() => console.log("✅ MongoDB Connected"))
 .catch(err => {
   console.error("❌ MongoDB Error:", err);
-  process.exit(1); // stop server kalau gagal connect
+  process.exit(1); // Stop server kalau gagal connect
 });
 
-// ====== SCHEMA ======
+// =====================
+// Schema
+// =====================
 const keySchema = new mongoose.Schema({
-  key: String,
+  key: { type: String, required: true },
+  createdBy: { type: String, required: true },
   createdAt: { type: Date, default: Date.now },
-  duration: Number,       // detik
-  usedBy: { type: [String], default: [] }, // userIds
-  expired: { type: Boolean, default: false },
+  used: { type: Boolean, default: false }
 });
 
-const Key = mongoose.model("Key", keySchema);
+const KeyModel = mongoose.model("Key", keySchema);
 
-// ====== ROUTES ======
+// =====================
+// Routes
+// =====================
 
-// Admin route: create key
+// Test route
+app.get("/", (req, res) => {
+  res.send("🗝 Key System Server Online");
+});
+
+// Create key (admin only)
 app.post("/create", async (req, res) => {
-  const { token, duration } = req.body;
-  if (token !== ADMIN_TOKEN) return res.status(403).json({ error: "Unauthorized" });
+  const { token, key } = req.body;
+  if (token !== ADMIN_TOKEN) return res.status(401).json({ error: "Unauthorized" });
 
-  const newKey = new Key({
-    key: crypto.randomBytes(8).toString("hex").toUpperCase(),
-    duration: duration || 3600, // default 1 jam
-  });
-
-  await newKey.save();
-  res.json({ key: newKey.key, expiresIn: newKey.duration });
+  try {
+    const newKey = new KeyModel({ key, createdBy: "admin" });
+    await newKey.save();
+    res.json({ success: true, key: newKey.key });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to create key" });
+  }
 });
 
-// User route: verify key
+// Verify key
 app.post("/verify", async (req, res) => {
-  const { key, userId } = req.body;
-  if (!key || !userId) return res.status(400).json({ error: "Missing key or userId" });
+  const { key } = req.body;
+  if (!key) return res.status(400).json({ error: "Key is required" });
 
-  const keyData = await Key.findOne({ key });
-  if (!keyData) return res.status(404).json({ valid: false, message: "Key not found" });
+  try {
+    const foundKey = await KeyModel.findOne({ key });
+    if (!foundKey) return res.json({ valid: false, message: "Key not found" });
+    if (foundKey.used) return res.json({ valid: false, message: "Key already used" });
 
-  // Check expiration
-  const elapsed = (Date.now() - keyData.createdAt.getTime()) / 1000;
-  if (elapsed > keyData.duration) {
-    keyData.expired = true;
-    await keyData.save();
-    return res.json({ valid: false, message: "Key expired" });
+    // Mark key as used
+    foundKey.used = true;
+    await foundKey.save();
+
+    res.json({ valid: true, message: "Key valid!" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Verification failed" });
   }
-
-  // Mark user as used
-  if (!keyData.usedBy.includes(userId.toString())) {
-    keyData.usedBy.push(userId.toString());
-    await keyData.save();
-  }
-
-  res.json({ valid: true, message: "Key valid" });
 });
 
-// Get all keys (Admin)
+// List all keys (admin only)
 app.get("/keys", async (req, res) => {
-  const token = req.query.token;
-  if (token !== ADMIN_TOKEN) return res.status(403).json({ error: "Unauthorized" });
-  const keys = await Key.find();
-  res.json(keys);
+  const token = req.headers["x-admin-token"];
+  if (token !== ADMIN_TOKEN) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const keys = await KeyModel.find().sort({ createdAt: -1 });
+    res.json(keys);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch keys" });
+  }
 });
 
-// ====== START SERVER ======
+// =====================
+// Start Server
+// =====================
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🌐 Public URL: cek di Railway Dashboard → Live App URL`);
+  console.log(`🚀 Key System Server running on port ${PORT}`);
 });
