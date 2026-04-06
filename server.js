@@ -1,9 +1,9 @@
 const express = require("express");
 const mongoose = require("mongoose");
-const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
 const cors = require("cors");
-const { v4: uuidv4 } = require("uuid");
+const crypto = require("crypto");
+const fetch = require("node-fetch");
 
 const app = express();
 
@@ -15,8 +15,9 @@ app.use(helmet());
 // ===== CONFIG =====
 const PORT = process.env.PORT || 8080;
 const MONGO_URI = process.env.MONGO_URI;
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "admin123";
 
-// ===== DATABASE =====
+// ===== DB =====
 mongoose.connect(MONGO_URI)
 .then(()=>console.log("✅ Mongo Connected"))
 .catch(err=>console.log(err));
@@ -25,23 +26,16 @@ const keySchema = new mongoose.Schema({
   key: String,
   ip: String,
   device: String,
-  session: String,
+  isVPN: Boolean,
+  createdAt: Date,
   expiresAt: Date
 });
 
 const Key = mongoose.model("Key", keySchema);
 
-// ===== RATE LIMIT =====
-app.use(rateLimit({ windowMs: 60000, max: 100 }));
-
-app.use("/getkey", rateLimit({
-  windowMs: 5 * 60 * 1000,
-  max: 3
-}));
-
 // ===== UTIL =====
 function generateKey(){
-  return uuidv4().replace(/-/g,"").substring(0,16).toUpperCase();
+  return crypto.randomBytes(8).toString("hex").toUpperCase();
 }
 
 function getDevice(req){
@@ -49,13 +43,31 @@ function getDevice(req){
          (req.headers["accept-language"] || "");
 }
 
+// ===== VPN DETECTION =====
+async function checkVPN(ip){
+  try{
+    const res = await fetch(`http://ip-api.com/json/${ip}?fields=proxy,hosting`);
+    const data = await res.json();
+
+    return data.proxy || data.hosting;
+  }catch{
+    return false;
+  }
+}
+
 // ===== ROOT =====
 app.get("/", (req,res)=>{
-  res.send("🔐 FINAL BOSS SYSTEM RUNNING");
+  res.send("🔐 GOD MODE ACTIVE");
 });
 
-// ===== GET KEY =====
-app.get("/getkey", async (req,res)=>{
+// ===== KEY ROUTE =====
+app.get("/:slug", async (req,res)=>{
+  const slug = req.params.slug;
+
+  if(slug.length < 6){
+    return res.status(404).send("Not Found");
+  }
+
   const ip = req.ip;
   const device = getDevice(req);
   const now = new Date();
@@ -70,15 +82,22 @@ app.get("/getkey", async (req,res)=>{
     return sendUI(res, existing.key, existing.expiresAt);
   }
 
+  // ===== DETEKSI VPN =====
+  const isVPN = await checkVPN(ip);
+
+  if(isVPN){
+    return res.send("❌ VPN / Proxy terdeteksi! Matikan terlebih dahulu.");
+  }
+
   const key = generateKey();
-  const session = uuidv4();
   const expiresAt = new Date(Date.now() + 24*60*60*1000);
 
   await Key.create({
     key,
     ip,
     device,
-    session,
+    isVPN,
+    createdAt: now,
     expiresAt
   });
 
@@ -95,22 +114,59 @@ app.post("/verify", async (req,res)=>{
     expiresAt: { $gt: now }
   });
 
-  if(found){
-    return res.json({ valid:true });
-  }
-
-  res.json({ valid:false });
+  res.json({ valid: !!found });
 });
 
-// ===== ADMIN (OPTIONAL) =====
-app.get("/admin/stats", async (req,res)=>{
-  const total = await Key.countDocuments();
-  const active = await Key.countDocuments({ expiresAt: { $gt: new Date() } });
+// ===== ADMIN AUTH =====
+function adminAuth(req,res,next){
+  const token = req.headers["authorization"];
+  if(token !== ADMIN_TOKEN){
+    return res.status(403).send("Forbidden");
+  }
+  next();
+}
 
-  res.json({
-    total_keys: total,
-    active_keys: active
+// ===== ADMIN DASHBOARD API =====
+app.get("/admin/data", adminAuth, async (req,res)=>{
+  const total = await Key.countDocuments();
+  const active = await Key.countDocuments({
+    expiresAt: { $gt: new Date() }
   });
+  const vpn = await Key.countDocuments({ isVPN: true });
+
+  res.json({ total, active, vpn });
+});
+
+// ===== ADMIN PANEL UI =====
+app.get("/admin", (req,res)=>{
+  res.send(`
+<!DOCTYPE html>
+<html>
+<body style="background:#111;color:white;font-family:sans-serif">
+
+<h2>Admin Dashboard</h2>
+
+<input id="token" placeholder="Admin Token">
+<button onclick="load()">Load</button>
+
+<pre id="out"></pre>
+
+<script>
+async function load(){
+  const token = document.getElementById("token").value;
+
+  const res = await fetch("/admin/data",{
+    headers:{ "Authorization": token }
+  });
+
+  const text = await res.text();
+  document.getElementById("out").innerText = text;
+}
+</script>
+
+</body>
+</html>
+  `);
 });
 
 // ===== UI =====
@@ -121,90 +177,61 @@ function sendUI(res, key, expiresAt){
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-
 body{
   margin:0;
   height:100vh;
   display:flex;
   justify-content:center;
   align-items:center;
-  background: linear-gradient(135deg,#141e30,#243b55);
+  background:url('https://images.unsplash.com/photo-1501785888041-af3ef285b470') center/cover;
   font-family:sans-serif;
-  color:white;
 }
 
 .card{
-  width:520px;
+  background:rgba(0,0,0,0.7);
   padding:30px;
   border-radius:20px;
-  background:rgba(0,0,0,0.65);
-  backdrop-filter:blur(20px);
-  text-align:center;
-  box-shadow:0 0 40px rgba(0,0,0,0.6);
+  color:white;
+  width:90%;
+  max-width:600px;
 }
 
-.key{
-  font-size:28px;
-  letter-spacing:3px;
+.keybox{
+  display:flex;
+  justify-content:space-between;
   background:#111;
   padding:20px;
   border-radius:10px;
-  margin:20px 0;
 }
 
 button{
-  padding:12px 30px;
+  background:#4facfe;
   border:none;
+  padding:10px;
   border-radius:10px;
-  background:linear-gradient(45deg,#00c6ff,#0072ff);
   color:white;
-  cursor:pointer;
 }
-
-.timer{
-  margin-top:10px;
-  font-size:14px;
-}
-
 </style>
 </head>
 
 <body>
 
 <div class="card">
-  <h2>🔐 ACCESS KEY</h2>
+<h3>KEY:</h3>
 
-  <div class="key" id="k">${key}</div>
+<div class="keybox">
+<div id="k">${key}</div>
+<button onclick="copy()">COPY</button>
+</div>
 
-  <button onclick="copy()">COPY</button>
-
-  <div class="timer" id="t"></div>
+<div id="t"></div>
 </div>
 
 <script>
 function copy(){
-  navigator.clipboard.writeText("${key}");
-  alert("Copied!");
+navigator.clipboard.writeText("${key}");
+alert("Copied!");
 }
-
-const exp = new Date("${expiresAt}").getTime();
-
-setInterval(()=>{
-  const now = new Date().getTime();
-  const diff = exp - now;
-
-  if(diff <= 0){
-    document.getElementById("t").innerText = "Expired";
-    return;
-  }
-
-  const h = Math.floor(diff/(1000*60*60));
-  const m = Math.floor((diff%(1000*60*60))/(1000*60));
-  const s = Math.floor((diff%(1000*60))/1000);
-
-  document.getElementById("t").innerText =
-    "Expires in: " + h+"h "+m+"m "+s+"s";
-},1000);
 </script>
 
 </body>
@@ -214,5 +241,5 @@ setInterval(()=>{
 
 // ===== START =====
 app.listen(PORT, ()=>{
-  console.log("🚀 Server running on port " + PORT);
+  console.log("🚀 Running on " + PORT);
 });
